@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import http.client
+import io
 import os
 import time
+import urllib.request
 
 import pytest
 
@@ -123,3 +126,27 @@ def test_cache_gem_hent_og_alder(tmp_path) -> None:  # type: ignore[no-untyped-d
     assert cache.hent("12345678", 7) is None  # for gammel
     assert cache.hent("12345678", None) == '{"a": "æøå"}'  # alder ignoreres
     assert not list((tmp_path / "raa").glob("*.tmp"))
+
+
+def test_retry_after_nan_falder_tilbage_til_backoff() -> None:
+    k = FalskKlient([(429, {"Retry-After": "nan"}, b""), ok("{}")])
+    k.hent_ansatte("12345678")
+    assert k.sovet == [2.0]
+
+
+def test_redirects_foelges_ikke() -> None:
+    # urllib ville ellers sende Authorization-headeren med til den nye adresse.
+    from cvr_aarsvaerk_checker.api import _OPENER, _IngenRedirect
+
+    assert any(isinstance(h, _IngenRedirect) for h in getattr(_OPENER, "handlers", []))
+    anmodning = urllib.request.Request("https://api.cvr.dev/x", headers={"Authorization": "Bearer k"})
+    headers = http.client.HTTPMessage()
+    headers["Location"] = "http://andet.example/"
+    assert _IngenRedirect().http_error_302(anmodning, io.BytesIO(), 302, "Found", headers) is None
+
+
+def test_redirect_svar_bliver_til_fejl() -> None:
+    k = FalskKlient([(302, {"Location": "http://andet.example/"}, b"")])
+    with pytest.raises(OpslagFejl, match="HTTP 302"):
+        k.hent_ansatte("12345678")
+    assert k.antal_kald == 1

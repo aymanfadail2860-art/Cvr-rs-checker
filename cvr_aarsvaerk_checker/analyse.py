@@ -9,8 +9,10 @@ Reglerne (fastlagt og godkendt):
 * Mangler en af de 12 måneder, findes den mere end én gang, eller er
   aarsvaerk null/ugyldig, er status UTILSTRÆKKELIGE_DATA. Der søges ikke
   længere tilbage efter en ældre komplet blok.
+* Negativ eller urealistisk stor aarsvaerk (>= 1.000.000) tæller som ugyldig.
 * MATCH hvis sum(B) - sum(A) >= 6, hvilket er præcis det samme som
-  gennemsnit(B) - gennemsnit(A) >= 1,00. Alt regnes med Decimal.
+  gennemsnit(B) - gennemsnit(A) >= 1,00. Tal læses som Decimal og summeres
+  som brøker (Fraction), så sammenligningen altid er helt eksakt.
 * Procentændringen er kun informativ og er tom, hvis gennemsnit A = 0.
 """
 
@@ -19,7 +21,8 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, replace
-from decimal import Decimal
+from decimal import Decimal, localcontext
+from fractions import Fraction
 from typing import Any
 
 MATCH = "MATCH"
@@ -30,7 +33,8 @@ FEJL = "FEJL"
 MAANED_INTERVAL = "måned"
 ANTAL_MAANEDER = 12
 PERIODE_LAENGDE = 6
-MATCH_GRAENSE_SUM = Decimal(6)  # 1,00 årsværk i gennemsnit * 6 måneder
+MATCH_GRAENSE_SUM = 6  # 1,00 årsværk i gennemsnit * 6 måneder
+MAX_AARSVAERK = Decimal(1_000_000)  # alt herover er en datafejl
 
 _DATO_RE = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
 
@@ -130,10 +134,21 @@ def _som_decimal(vaerdi: Any) -> Decimal | None:
     if isinstance(vaerdi, bool):  # bool er en underklasse af int i Python
         return None
     if isinstance(vaerdi, int):
-        return Decimal(vaerdi)
-    if isinstance(vaerdi, Decimal) and vaerdi.is_finite():
-        return vaerdi
-    return None
+        tal = Decimal(vaerdi)
+    elif isinstance(vaerdi, Decimal) and vaerdi.is_finite():
+        tal = vaerdi
+    else:
+        return None
+    if not 0 <= tal < MAX_AARSVAERK:  # negativ eller urealistisk stor
+        return None
+    return tal
+
+
+def _som_decimal_tal(broek: Fraction) -> Decimal:
+    """Eksakt brøk -> Decimal med rigeligt mange cifre (kun til visning)."""
+    with localcontext() as ctx:
+        ctx.prec = 40
+        return Decimal(broek.numerator) / Decimal(broek.denominator)
 
 
 def analyser_maaneder(cvr_nummer: str, maaneder: list[MaanedsPost]) -> Resultat:
@@ -168,7 +183,7 @@ def analyser_maaneder(cvr_nummer: str, maaneder: list[MaanedsPost]) -> Resultat:
     mangler: list[int] = []
     dubletter: list[int] = []
     ugyldige: list[int] = []
-    vaerdier: dict[int, Decimal] = {}
+    vaerdier: dict[int, Fraction] = {}
     for m, fundne in vindue.items():
         if not fundne:
             mangler.append(m)
@@ -179,7 +194,7 @@ def analyser_maaneder(cvr_nummer: str, maaneder: list[MaanedsPost]) -> Resultat:
             if d is None:
                 ugyldige.append(m)
             else:
-                vaerdier[m] = d
+                vaerdier[m] = Fraction(d)
 
     if mangler or dubletter or ugyldige:
         dele: list[str] = []
@@ -191,20 +206,20 @@ def analyser_maaneder(cvr_nummer: str, maaneder: list[MaanedsPost]) -> Resultat:
             dele.append("null/ugyldig aarsvaerk i " + ", ".join(map(formater_maaned, ugyldige)))
         return replace(grundlag, note="; ".join(dele))
 
-    sum_a = sum((vaerdier[m] for m in range(a_start, a_slut + 1)), Decimal(0))
-    sum_b = sum((vaerdier[m] for m in range(b_start, seneste + 1)), Decimal(0))
+    sum_a = sum((vaerdier[m] for m in range(a_start, a_slut + 1)), Fraction(0))
+    sum_b = sum((vaerdier[m] for m in range(b_start, seneste + 1)), Fraction(0))
     forskel = sum_b - sum_a
 
     # Beslutningen træffes på de eksakte summer, aldrig på afrundede tal.
     status = MATCH if forskel >= MATCH_GRAENSE_SUM else IKKE_MATCH
-    procent = None if sum_a == 0 else forskel / sum_a * 100
+    procent = None if sum_a == 0 else _som_decimal_tal(forskel / sum_a * 100)
 
     return replace(
         grundlag,
         status=status,
-        gennemsnit_a=sum_a / PERIODE_LAENGDE,
-        gennemsnit_b=sum_b / PERIODE_LAENGDE,
-        absolut_aendring=forskel / PERIODE_LAENGDE,
+        gennemsnit_a=_som_decimal_tal(sum_a / PERIODE_LAENGDE),
+        gennemsnit_b=_som_decimal_tal(sum_b / PERIODE_LAENGDE),
+        absolut_aendring=_som_decimal_tal(forskel / PERIODE_LAENGDE),
         procent_aendring=procent,
         note="" if procent is not None else "procent kan ikke beregnes (gennemsnit A = 0)",
     )

@@ -275,3 +275,29 @@ def test_liste_med_en_virksomhed_accepteres() -> None:
     # Dokumentationen beskriver en liste; API'et svarer med ét objekt. Begge virker.
     enkelt = maaneds_svar(CVR, tolv_maaneder("2026-07", [5] * 6, [7] * 6))
     assert analyser_raa_svar(CVR, f"[{enkelt}]").status == MATCH
+
+
+# --- Fund fra review: eksakthed og urealistiske værdier --------------------
+
+
+def test_eksakt_ogsaa_med_mange_decimaler() -> None:
+    # 6 x 0,99999999999999999999999999999 (29 cifre) er en anelse under 6. Med Decimals
+    # standardpræcision (28 cifre) ville summen blive rundet op til 6 -> forkert MATCH.
+    svar = maaneds_svar(CVR, tolv_maaneder("2026-07", [0] * 6, [7777] * 6))
+    svar = svar.replace('"aarsvaerk": 7777', '"aarsvaerk": 0.99999999999999999999999999999')
+    assert analyser_raa_svar(CVR, svar).status == IKKE_MATCH
+
+
+@pytest.mark.parametrize("ugyldig", [-1, -0.5, 1_000_000, 10**30])
+def test_negativ_eller_urealistisk_aarsvaerk_er_ugyldig(ugyldig: object) -> None:
+    maaneder = tolv_maaneder("2026-07", [5] * 6, [7] * 6)
+    maaneder["2026-05"] = ugyldig
+    r = analyser(maaneder)
+    assert r.status == UTILSTRAEKKELIGE_DATA
+    assert "null/ugyldig aarsvaerk i 2026-05" in r.note
+
+
+def test_meget_stor_procent_kan_vises() -> None:
+    r = analyser(tolv_maaneder("2026-07", [1e-25] + [0] * 5, [1] * 6))
+    assert r.status == IKKE_MATCH  # sum(B) - sum(A) = 6 - 1e-25, altså lige under 6
+    assert formater_tal(r.procent_aendring).endswith(",00")  # må ikke crashe

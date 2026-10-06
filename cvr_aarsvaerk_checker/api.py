@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import http.client
 import json
+import math
 import os
 import time
 import urllib.error
@@ -45,6 +46,16 @@ class FatalApiFejl(Exception):
 
 
 Svar = tuple[int, dict[str, str], bytes]
+
+
+class _IngenRedirect(urllib.request.HTTPRedirectHandler):
+    """Følg aldrig redirects: urllib ville sende Authorization-headeren med til den nye adresse."""
+
+    def redirect_request(self, *args: object, **kwargs: object) -> None:
+        return None
+
+
+_OPENER = urllib.request.build_opener(_IngenRedirect)
 
 
 def hent_api_noegle() -> str | None:
@@ -87,7 +98,7 @@ class CvrDevKlient:
         """Ét HTTP GET. Netværksfejl rejses som OSError/HTTPException."""
         anmodning = urllib.request.Request(url, headers=self._headers, method="GET")
         try:
-            with urllib.request.urlopen(anmodning, timeout=self.timeout) as svar:
+            with _OPENER.open(anmodning, timeout=self.timeout) as svar:
                 return svar.status, dict(svar.headers.items()), svar.read()
         except urllib.error.HTTPError as e:
             with e:
@@ -97,7 +108,9 @@ class CvrDevKlient:
         retry_after = next((v for k, v in headers.items() if k.lower() == "retry-after"), None)
         if retry_after is not None:
             try:
-                return min(max(float(retry_after), 0.0), self.max_ventetid)
+                sekunder = float(retry_after)
+                if math.isfinite(sekunder):
+                    return min(max(sekunder, 0.0), self.max_ventetid)
             except ValueError:
                 pass  # HTTP-dato-format understøttes ikke; brug backoff
         return min(self.backoff_basis * 2.0**forsoeg, self.max_ventetid)

@@ -14,3 +14,4 @@ def ingen_netvaerk(monkeypatch: pytest.MonkeyPatch) -> None:
         raise AssertionError("Test forsøgte at lave et rigtigt netværkskald")
 
     monkeypatch.setattr(urllib.request, "urlopen", blokeret)
+    monkeypatch.setattr(urllib.request.OpenerDirector, "open", blokeret)

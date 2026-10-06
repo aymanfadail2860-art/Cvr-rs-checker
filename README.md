@@ -18,9 +18,13 @@ Enten en tekstfil med ét CVR-nummer pr. linje:
 ```
 
 …eller en CSV-fil fra Excel, hvor en kolonne hedder noget med "cvr" (fx `CVR-nummer`).
-Separator kan være `;`, `,` eller tab. Mellemrum og `DK`-præfiks fjernes automatisk,
-dubletter fjernes, og ugyldige numre (ikke 8 cifre) kommer med i resultatet som `FEJL`.
-Linjer der starter med `#` ignoreres.
+Uden en sådan overskrift bruges første kolonne. Separatoren (`;`, tab eller `,`) aflæses
+af første linje, og felter i anførselstegn håndteres korrekt.
+
+* Mellemrum, `DK`-præfiks (`DK-1234 5678`), `12.345.678` og Excels `12345678.0` renses automatisk.
+* Dubletter fjernes, og tomme celler springes over.
+* Ugyldige numre (ikke 8 cifre) kommer med i resultatet som `FEJL`.
+* Linjer der starter med `#` ignoreres.
 
 ### 2. Sæt API-nøglen (kun på din egen computer)
 
@@ -70,6 +74,10 @@ Filerne bruger semikolon og decimalkomma, så de åbner direkte i dansk Excel.
 Kør bare samme kommando igen. Råsvar fra cvr.dev gemmes i `data/raa_svar/`, og svar der er
 højst 7 dage gamle genbruges i stedet for at blive hentet igen – det sparer API-forbrug.
 
+Afbryder du selv med Ctrl+C, skrives resultatfilerne stadig for det, der nåede at blive
+behandlet. Var kørslen startet med `--opdater`, så kør igen **uden** `--opdater` – ellers
+hentes (og betales) de allerede gemte svar en gang til.
+
 ## Valgmuligheder
 
 | Valg | Betydning |
@@ -111,7 +119,7 @@ For hvert CVR-nummer:
 3. De 12 kalendermåneder, der slutter i den måned, er de eneste der bruges.
    **Periode A** = de 6 første, **Periode B** = de 6 seneste. Ældre historik ignoreres.
 4. **MATCH** hvis `sum(B) − sum(A) ≥ 6`, hvilket er præcis det samme som
-   `gennemsnit B − gennemsnit A ≥ 1,00`. Alt regnes med eksakte decimaltal, så fx en reel
+   `gennemsnit B − gennemsnit A ≥ 1,00`. Alt regnes eksakt (decimaltal og brøker), så fx en reel
    ændring på 0,996 er `IKKE_MATCH`, selvom den vises som 1,00. Præcis +1,00 er `MATCH`.
    Der er ingen øvre grænse.
 
@@ -119,7 +127,7 @@ For hvert CVR-nummer:
 |---|---|
 | `MATCH` | Stigning på mindst +1,00 årsværk |
 | `IKKE_MATCH` | Stigning under +1,00 (eller fald) |
-| `UTILSTRÆKKELIGE_DATA` | En af de 12 måneder mangler, findes flere gange, eller har tom/ugyldig `aarsvaerk`. Der søges **ikke** længere tilbage. Intervalkoder bruges aldrig som erstatning. `0` er en gyldig værdi. |
+| `UTILSTRÆKKELIGE_DATA` | En af de 12 måneder mangler, findes flere gange, eller har tom/ugyldig `aarsvaerk` (ugyldig = ikke et tal, negativ eller over 1.000.000). Der søges **ikke** længere tilbage. Intervalkoder bruges aldrig som erstatning. `0` er en gyldig værdi. |
 | `FEJL` | Opslaget eller behandlingen kunne ikke gennemføres: API-fejl, 429/5xx efter genforsøg, ugyldigt svar, ugyldigt CVR-nummer eller anden teknisk fejl |
 
 ## API-forbrug og fejlhåndtering
@@ -131,7 +139,12 @@ For hvert CVR-nummer:
 * 429 og 5xx genforsøges med exponential backoff (2, 4, 8, 16, 32 sek.). Sender API'et en
   `Retry-After`-header, bruges den.
 * Fejler 5 opslag i træk efter alle genforsøg, stoppes kørslen (API'et er formentlig nede).
-  Resultaterne indtil da skrives stadig, og en ny kørsel genbruger de gemte svar.
+* Kan råsvar ikke gemmes (fx fuld disk), stoppes kørslen, så der ikke betales for opslag,
+  der går tabt.
+* Når kørslen stoppes, laves der ingen flere API-kald, men resten af CVR-numrene analyseres
+  stadig ud fra gemte råsvar. Kun dem uden gemt svar markeres `FEJL` ("ikke behandlet").
+  Resultatfilerne skrives altid, og en ny kørsel genbruger de gemte svar.
+* Redirects følges ikke, så API-nøglen aldrig sendes til en anden adresse.
 
 ## Projektstruktur
 

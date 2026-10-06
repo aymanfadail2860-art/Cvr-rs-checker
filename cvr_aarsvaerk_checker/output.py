@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import csv
 from collections.abc import Iterable
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_HALF_UP, Decimal, localcontext
 from pathlib import Path
 
 from .analyse import MATCH, Resultat, formater_maaned
@@ -34,7 +34,9 @@ _TO_DECIMALER = Decimal("0.01")
 def formater_tal(vaerdi: Decimal | None) -> str:
     if vaerdi is None:
         return ""
-    afrundet = vaerdi.quantize(_TO_DECIMALER, rounding=ROUND_HALF_UP)
+    with localcontext() as ctx:
+        ctx.prec = max(28, vaerdi.adjusted() + 4)  # plads til alle cifre før kommaet
+        afrundet = vaerdi.quantize(_TO_DECIMALER, rounding=ROUND_HALF_UP)
     if afrundet == 0:
         afrundet = abs(afrundet)  # undgå "-0,00"
     return f"{afrundet:.2f}".replace(".", ",")
@@ -44,9 +46,14 @@ def _maaned(indeks: int | None) -> str:
     return "" if indeks is None else formater_maaned(indeks)
 
 
+def _sikker_tekst(tekst: str) -> str:
+    """Forhindr at Excel tolker tekst fra inputfilen som en formel."""
+    return "'" + tekst if tekst[:1] in ("=", "+", "-", "@", "\t", "\r") else tekst
+
+
 def som_raekke(r: Resultat) -> list[str]:
     return [
-        r.cvr_nummer,
+        _sikker_tekst(r.cvr_nummer),
         _maaned(r.seneste_registrerede_maaned),
         _maaned(r.periode_a_start),
         _maaned(r.periode_a_slut),
@@ -57,7 +64,7 @@ def som_raekke(r: Resultat) -> list[str]:
         formater_tal(r.absolut_aendring),
         formater_tal(r.procent_aendring),
         r.status,
-        r.note,
+        _sikker_tekst(r.note),
     ]
 
 

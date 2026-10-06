@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import csv
 from pathlib import Path
 
 from cvr_aarsvaerk_checker.analyse import FEJL, IKKE_MATCH, MATCH, UTILSTRAEKKELIGE_DATA
-from cvr_aarsvaerk_checker.api import RaaSvarCache
+from cvr_aarsvaerk_checker.api import RaaSvarCache, Svar
 from cvr_aarsvaerk_checker.cli import MAX_FEJL_I_TRAEK, koer, main
 from cvr_aarsvaerk_checker.output import KOLONNER
 
@@ -98,14 +99,62 @@ def test_mange_fejl_i_traek_stopper_koerslen(tmp_path: Path) -> None:
 
 def test_uventet_fejl_giver_fejl_status(tmp_path: Path) -> None:
     class OedelagtCache(RaaSvarCache):
+        def hent(self, cvr_nummer: str, max_alder_dage: float | None) -> str | None:
+            raise RuntimeError("uventet")
+
+    resultater, stop = _koer(["11111111"], FalskKlient([]), OedelagtCache(tmp_path))
+    assert stop is None
+    assert resultater[0].status == FEJL
+    assert "teknisk fejl: RuntimeError" in resultater[0].note
+
+
+def test_cache_kan_ikke_skrives_stopper_men_beholder_resultat(tmp_path: Path) -> None:
+    class SkrivebeskyttetCache(RaaSvarCache):
         def gem(self, cvr_nummer: str, raa_svar: str) -> None:
             raise PermissionError("disk skrivebeskyttet")
 
     klient = FalskKlient([NOEGLE_OK, ok(MATCH_SVAR)])
-    resultater, stop = _koer(["11111111"], klient, OedelagtCache(tmp_path))
+    resultater, stop = _koer(["11111111", "22222222"], klient, SkrivebeskyttetCache(tmp_path))
+    assert stop is not None and "kan ikke gemmes" in stop
+    assert resultater[0].status == MATCH  # det betalte opslag smides ikke væk
+    assert "råsvar kunne ikke gemmes" in resultater[0].note
+    assert resultater[1].status == FEJL and "ikke behandlet" in resultater[1].note
+    assert klient.antal_kald == 2  # ingen flere opslag efter stop
+
+
+def test_oedelagt_gemt_fil_hentes_igen(tmp_path: Path) -> None:
+    cache = RaaSvarCache(tmp_path)
+    cache.gem("11111111", "")
+    klient = FalskKlient([NOEGLE_OK, ok(MATCH_SVAR)])
+    resultater, _ = _koer(["11111111"], klient, cache)
+    assert resultater[0].status == MATCH
+    assert cache.hent("11111111", None) == MATCH_SVAR
+
+
+def test_ctrl_c_stopper_paent(tmp_path: Path) -> None:
+    klient = FalskKlient([NOEGLE_OK, ok(MATCH_SVAR), KeyboardInterrupt()])
+    resultater, stop = _koer(["11111111", "22222222", "33333333"], klient, RaaSvarCache(tmp_path))
+    assert stop is not None and "Ctrl+C" in stop
+    assert [r.status for r in resultater] == [MATCH, FEJL, FEJL]
+
+
+def test_fejl_i_traek_nulstilles_naar_api_svarer(tmp_path: Path) -> None:
+    moenster: list[Svar] = [(503, {}, b""), (404, {}, b"")] * MAX_FEJL_I_TRAEK
+    cvr = [f"{10000000 + i}" for i in range(len(moenster))]
+    klient = FalskKlient([NOEGLE_OK, *moenster], max_genforsoeg=0)
+    resultater, stop = _koer(cvr, klient, RaaSvarCache(tmp_path))
     assert stop is None
-    assert resultater[0].status == FEJL
-    assert "teknisk fejl" in resultater[0].note
+    assert len(resultater) == len(cvr)
+
+
+def test_efter_stop_bruges_gemte_svar_stadig(tmp_path: Path) -> None:
+    cache = RaaSvarCache(tmp_path)
+    cache.gem("11111111", MATCH_SVAR)
+    klient = FalskKlient([(401, {}, b"")])
+    resultater, stop = _koer(["33333333", "11111111"], klient, cache)
+    assert stop is not None
+    assert [r.status for r in resultater] == [FEJL, MATCH]
+    assert klient.antal_kald == 1
 
 
 # --- Hele programmet, offline med gemte svar --------------------------------
@@ -114,7 +163,7 @@ def test_uventet_fejl_giver_fejl_status(tmp_path: Path) -> None:
 def _laes_csv(sti: Path) -> list[list[str]]:
     raa = sti.read_bytes()
     assert raa.startswith(b"\xef\xbb\xbf")  # BOM, så Excel læser UTF-8 korrekt
-    return [linje.split(";") for linje in raa.decode("utf-8-sig").splitlines()]
+    return list(csv.reader(raa.decode("utf-8-sig").splitlines(), delimiter=";"))
 
 
 def test_main_offline_skriver_begge_csv_filer(tmp_path: Path) -> None:
@@ -165,3 +214,12 @@ def test_main_offline_skriver_begge_csv_filer(tmp_path: Path) -> None:
         "status": MATCH,
         "note": "",
     }
+
+
+def test_formler_fra_input_neutraliseres_i_csv(tmp_path: Path) -> None:
+    inputfil = tmp_path / "input.txt"
+    inputfil.write_text('CVR\n=HYPERLINK("http://x")\n@SUM(1+1)\n+45 12\n', encoding="utf-8")
+    assert main([str(inputfil), "--offline", "--output-mappe", str(tmp_path / "ud")]) == 0
+    (koersel,) = (tmp_path / "ud").iterdir()
+    celler = [r[0] for r in _laes_csv(koersel / "alle_resultater.csv")[1:]]
+    assert all(c.startswith("'") for c in celler), celler
