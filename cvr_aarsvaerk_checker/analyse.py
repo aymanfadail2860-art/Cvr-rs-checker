@@ -9,7 +9,8 @@ Reglerne (fastlagt og godkendt):
 * Mangler en af de 12 måneder, findes den mere end én gang, eller er
   aarsvaerk null/ugyldig, er status UTILSTRÆKKELIGE_DATA. Der søges ikke
   længere tilbage efter en ældre komplet blok.
-* Negativ eller urealistisk stor aarsvaerk (>= 1.000.000) tæller som ugyldig.
+* Negativ aarsvaerk tæller som ugyldig. Alle andre ikke-negative tal analyseres;
+  ekstremt høje værdier (>= 1.000.000) giver kun en advarsel i noten.
 * MATCH hvis sum(B) - sum(A) >= 6, hvilket er præcis det samme som
   gennemsnit(B) - gennemsnit(A) >= 1,00. Tal læses som Decimal og summeres
   som brøker (Fraction), så sammenligningen altid er helt eksakt.
@@ -21,7 +22,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, replace
-from decimal import Decimal, localcontext
+from decimal import MAX_EMAX, MIN_EMIN, Decimal, localcontext
 from fractions import Fraction
 from typing import Any
 
@@ -34,7 +35,7 @@ MAANED_INTERVAL = "måned"
 ANTAL_MAANEDER = 12
 PERIODE_LAENGDE = 6
 MATCH_GRAENSE_SUM = 6  # 1,00 årsværk i gennemsnit * 6 måneder
-MAX_AARSVAERK = Decimal(1_000_000)  # alt herover er en datafejl
+ADVARSEL_AARSVAERK = Decimal(1_000_000)  # kun advarsel i noten; ændrer ikke status
 
 _DATO_RE = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
 
@@ -139,7 +140,7 @@ def _som_decimal(vaerdi: Any) -> Decimal | None:
         tal = vaerdi
     else:
         return None
-    if not 0 <= tal < MAX_AARSVAERK:  # negativ eller urealistisk stor
+    if tal < 0:  # negativ årsværk er ugyldig data
         return None
     return tal
 
@@ -148,6 +149,7 @@ def _som_decimal_tal(broek: Fraction) -> Decimal:
     """Eksakt brøk -> Decimal med rigeligt mange cifre (kun til visning)."""
     with localcontext() as ctx:
         ctx.prec = 40
+        ctx.Emax, ctx.Emin = MAX_EMAX, MIN_EMIN  # ingen overflow ved ekstreme værdier
         return Decimal(broek.numerator) / Decimal(broek.denominator)
 
 
@@ -206,6 +208,9 @@ def analyser_maaneder(cvr_nummer: str, maaneder: list[MaanedsPost]) -> Resultat:
             dele.append("null/ugyldig aarsvaerk i " + ", ".join(map(formater_maaned, ugyldige)))
         return replace(grundlag, note="; ".join(dele))
 
+    hoeje = [m for m, v in vaerdier.items() if v >= ADVARSEL_AARSVAERK]
+    advarsel = "advarsel: usædvanligt høj aarsvaerk i " + ", ".join(map(formater_maaned, hoeje)) if hoeje else ""
+
     sum_a = sum((vaerdier[m] for m in range(a_start, a_slut + 1)), Fraction(0))
     sum_b = sum((vaerdier[m] for m in range(b_start, seneste + 1)), Fraction(0))
     forskel = sum_b - sum_a
@@ -221,7 +226,9 @@ def analyser_maaneder(cvr_nummer: str, maaneder: list[MaanedsPost]) -> Resultat:
         gennemsnit_b=_som_decimal_tal(sum_b / PERIODE_LAENGDE),
         absolut_aendring=_som_decimal_tal(forskel / PERIODE_LAENGDE),
         procent_aendring=procent,
-        note="" if procent is not None else "procent kan ikke beregnes (gennemsnit A = 0)",
+        note="; ".join(
+            n for n in (advarsel, "" if procent is not None else "procent kan ikke beregnes (gennemsnit A = 0)") if n
+        ),
     )
 
 

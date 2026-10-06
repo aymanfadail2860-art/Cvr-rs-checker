@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import csv
 from collections.abc import Iterable
-from decimal import ROUND_HALF_UP, Decimal, localcontext
+from decimal import MAX_EMAX, MIN_EMIN, ROUND_HALF_UP, Decimal, localcontext
 from pathlib import Path
 
 from .analyse import MATCH, Resultat, formater_maaned
@@ -36,6 +36,7 @@ def formater_tal(vaerdi: Decimal | None) -> str:
         return ""
     with localcontext() as ctx:
         ctx.prec = max(28, vaerdi.adjusted() + 4)  # plads til alle cifre før kommaet
+        ctx.Emax, ctx.Emin = MAX_EMAX, MIN_EMIN
         afrundet = vaerdi.quantize(_TO_DECIMALER, rounding=ROUND_HALF_UP)
     if afrundet == 0:
         afrundet = abs(afrundet)  # undgå "-0,00"

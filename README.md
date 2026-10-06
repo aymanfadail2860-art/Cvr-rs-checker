@@ -127,7 +127,7 @@ For hvert CVR-nummer:
 |---|---|
 | `MATCH` | Stigning på mindst +1,00 årsværk |
 | `IKKE_MATCH` | Stigning under +1,00 (eller fald) |
-| `UTILSTRÆKKELIGE_DATA` | En af de 12 måneder mangler, findes flere gange, eller har tom/ugyldig `aarsvaerk` (ugyldig = ikke et tal, negativ eller over 1.000.000). Der søges **ikke** længere tilbage. Intervalkoder bruges aldrig som erstatning. `0` er en gyldig værdi. |
+| `UTILSTRÆKKELIGE_DATA` | En af de 12 måneder mangler, findes flere gange, eller har tom/ugyldig `aarsvaerk` (ugyldig = ikke et tal eller negativ). Der søges **ikke** længere tilbage. Intervalkoder bruges aldrig som erstatning. `0` er en gyldig værdi. Ekstremt høje værdier (≥ 1.000.000) analyseres normalt, men får en advarsel i `note`. |
 | `FEJL` | Opslaget eller behandlingen kunne ikke gennemføres: API-fejl, 429/5xx efter genforsøg, ugyldigt svar, ugyldigt CVR-nummer eller anden teknisk fejl |
 
 ## API-forbrug og fejlhåndtering

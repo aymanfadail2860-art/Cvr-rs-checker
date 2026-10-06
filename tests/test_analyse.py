@@ -288,13 +288,51 @@ def test_eksakt_ogsaa_med_mange_decimaler() -> None:
     assert analyser_raa_svar(CVR, svar).status == IKKE_MATCH
 
 
-@pytest.mark.parametrize("ugyldig", [-1, -0.5, 1_000_000, 10**30])
-def test_negativ_eller_urealistisk_aarsvaerk_er_ugyldig(ugyldig: object) -> None:
+@pytest.mark.parametrize("negativ", [-1, -0.5, -0.0001])
+def test_negativ_aarsvaerk_er_ugyldig(negativ: object) -> None:
     maaneder = tolv_maaneder("2026-07", [5] * 6, [7] * 6)
-    maaneder["2026-05"] = ugyldig
+    maaneder["2026-05"] = negativ
     r = analyser(maaneder)
     assert r.status == UTILSTRAEKKELIGE_DATA
     assert "null/ugyldig aarsvaerk i 2026-05" in r.note
+
+
+def test_minus_nul_er_gyldigt_nul() -> None:
+    svar = maaneds_svar(CVR, tolv_maaneder("2026-07", [7777] * 6, [1] * 6)).replace(
+        '"aarsvaerk": 7777', '"aarsvaerk": -0.0'
+    )
+    assert analyser_raa_svar(CVR, svar).status == MATCH
+
+
+@pytest.mark.parametrize(
+    ("a", "b", "forventet"),
+    [
+        (999_999, 1_000_000, MATCH),  # præcis +1,00 ved grænsen for advarslen
+        (1_000_000, 1_000_000.5, IKKE_MATCH),
+        (10**30, 10**30 + 1, MATCH),
+        (10**30, 10**30, IKKE_MATCH),
+    ],
+)
+def test_hoeje_vaerdier_analyseres_med_advarsel(a: object, b: object, forventet: str) -> None:
+    r = analyser(tolv_maaneder("2026-07", [a] * 6, [b] * 6))
+    assert r.status == forventet  # aldrig UTILSTRÆKKELIGE_DATA pga. høje værdier
+    assert r.note.startswith("advarsel: usædvanligt høj aarsvaerk i ")
+    assert formater_tal(r.absolut_aendring) in ("1,00", "0,50", "0,00")
+
+
+def test_ingen_advarsel_under_graensen() -> None:
+    r = analyser(tolv_maaneder("2026-07", [999_998] * 6, [999_999] * 6))
+    assert r.status == MATCH
+    assert r.note == ""
+
+
+def test_ekstremt_stor_eksponent_kan_analyseres() -> None:
+    svar = maaneds_svar(CVR, tolv_maaneder("2026-07", [7777] * 6, [8888] * 6))
+    svar = svar.replace('"aarsvaerk": 7777', '"aarsvaerk": 1E+50').replace('"aarsvaerk": 8888', '"aarsvaerk": 2E+50')
+    r = analyser_raa_svar(CVR, svar)
+    assert r.status == MATCH
+    assert "advarsel" in r.note
+    assert formater_tal(r.gennemsnit_b).startswith("2000000000")
 
 
 def test_meget_stor_procent_kan_vises() -> None:
