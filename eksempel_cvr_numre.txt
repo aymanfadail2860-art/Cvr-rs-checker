@@ -1,0 +1,3 @@
+# Ét CVR-nummer pr. linje. Linjer der starter med # ignoreres.
+# Man kan også bruge en CSV-fil (fx eksporteret fra Excel) med en kolonne der hedder "cvr".
+10582989

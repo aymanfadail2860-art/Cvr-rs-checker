@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cvr-aarsvaerk-checker"
+version = "1.0.0"
+description = "Find virksomheder med stigende årsværk via cvr.dev"
+requires-python = ">=3.10"
+dependencies = []  # kun Pythons standardbibliotek
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff", "mypy"]
+
+[tool.setuptools]
+packages = ["cvr_aarsvaerk_checker"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+
+[tool.mypy]
+strict = true
+files = ["cvr_aarsvaerk_checker", "tests"]
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

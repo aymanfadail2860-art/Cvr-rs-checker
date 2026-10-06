@@ -1,0 +1,19 @@
+# Hemmeligheder – API-nøglen må aldrig committes
+.env
+.env.*
+*.key
+
+# Rå API-svar og resultater (virksomhedsdata, genereres ved kørsel)
+data/
+resultater/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+build/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
