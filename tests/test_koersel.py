@@ -211,6 +211,8 @@ def test_main_offline_skriver_begge_csv_filer(tmp_path: Path) -> None:
         "gennemsnit_aarsvaerk_periode_b": "6,00",
         "absolut_aendring": "1,00",
         "procent_aendring": "20,00",
+        "seneste_aarsvaerk": "6,00",
+        "seneste_aarsvaerk_periode": "2026-07",
         "status": MATCH,
         "note": "",
     }
@@ -223,3 +225,24 @@ def test_formler_fra_input_neutraliseres_i_csv(tmp_path: Path) -> None:
     (koersel,) = (tmp_path / "ud").iterdir()
     celler = [r[0] for r in _laes_csv(koersel / "alle_resultater.csv")[1:]]
     assert all(c.startswith("'") for c in celler), celler
+
+
+def test_matches_csv_udelader_virksomheder_over_15_aarsvaerk(tmp_path: Path) -> None:
+    cache = RaaSvarCache(tmp_path / "cache")
+    cache.gem("11111111", MATCH_SVAR)  # vækst +1,00, seneste 6 -> MATCH
+    for_stor = maaneds_svar("33333333", tolv_maaneder("2026-07", [20] * 6, [24] * 6))  # vækst +4, seneste 24
+    cache.gem("33333333", for_stor)
+    inputfil = tmp_path / "input.txt"
+    inputfil.write_text("11111111\n33333333\n", encoding="utf-8")
+    kode = main(
+        [str(inputfil), "--offline", "--cache-mappe", str(tmp_path / "cache"), "--output-mappe", str(tmp_path / "ud")]
+    )
+    assert kode == 0
+    (koersel,) = (tmp_path / "ud").iterdir()
+    matches = _laes_csv(koersel / "matches.csv")
+    assert [r[0] for r in matches[1:]] == ["11111111"]
+    alle = {r[0]: dict(zip(KOLONNER, r, strict=True)) for r in _laes_csv(koersel / "alle_resultater.csv")[1:]}
+    assert alle["33333333"]["status"] == IKKE_MATCH
+    assert alle["33333333"]["absolut_aendring"] == "4,00"
+    assert alle["33333333"]["seneste_aarsvaerk"] == "24,00"
+    assert alle["33333333"]["seneste_aarsvaerk_periode"] == "2026-07"

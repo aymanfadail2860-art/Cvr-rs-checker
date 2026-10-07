@@ -24,6 +24,8 @@ KOLONNER = [
     "gennemsnit_aarsvaerk_periode_b",
     "absolut_aendring",
     "procent_aendring",
+    "seneste_aarsvaerk",
+    "seneste_aarsvaerk_periode",
     "status",
     "note",
 ]
@@ -64,6 +66,8 @@ def som_raekke(r: Resultat) -> list[str]:
         formater_tal(r.gennemsnit_b),
         formater_tal(r.absolut_aendring),
         formater_tal(r.procent_aendring),
+        formater_tal(r.seneste_aarsvaerk),
+        _maaned(r.seneste_aarsvaerk_periode),
         r.status,
         _sikker_tekst(r.note),
     ]

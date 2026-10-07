@@ -1,8 +1,8 @@
 # CVR Årsværk Checker
 
 Finder virksomheder, hvor det **gennemsnitlige årsværk i de seneste 6 måneder er steget med mindst +1,00**
-sammenlignet med de 6 måneder umiddelbart før. Data hentes fra [cvr.dev](https://docs.cvr.dev)
-(endpointet *Antal ansatte og årsværk*).
+sammenlignet med de 6 måneder umiddelbart før, og hvor det **seneste månedlige årsværk højst er 15,00**.
+Data hentes fra [cvr.dev](https://docs.cvr.dev) (endpointet *Antal ansatte og årsværk*).
 
 Kræver kun Python 3.10 eller nyere – ingen ekstra pakker, ingen database, ingen frontend.
 
@@ -64,7 +64,7 @@ Hver kørsel får sin egen mappe, fx `resultater/2026-10-06_141500/`:
 
 | Fil | Indhold |
 |---|---|
-| `matches.csv` | Kun virksomheder med status `MATCH`, største stigning først |
+| `matches.csv` | Kun virksomheder med status `MATCH` (vækst ≥ +1,00 og seneste årsværk ≤ 15,00), største stigning først |
 | `alle_resultater.csv` | Alle virksomheder, uanset status |
 
 Filerne bruger semikolon og decimalkomma, så de åbner direkte i dansk Excel.
@@ -105,6 +105,8 @@ hentes (og betales) de allerede gemte svar en gang til.
 | `gennemsnit_aarsvaerk_periode_b` | Gennemsnitligt årsværk i Periode B |
 | `absolut_aendring` | Gennemsnit B − gennemsnit A |
 | `procent_aendring` | Ændring i procent af gennemsnit A (kun information; tom hvis A = 0) |
+| `seneste_aarsvaerk` | Årsværk i virksomhedens seneste måned (bruges i størrelsesfilteret ≤ 15,00) |
+| `seneste_aarsvaerk_periode` | Måneden for `seneste_aarsvaerk` (ÅÅÅÅ-MM) |
 | `status` | `MATCH`, `IKKE_MATCH`, `UTILSTRÆKKELIGE_DATA` eller `FEJL` |
 | `note` | Forklaring ved `UTILSTRÆKKELIGE_DATA` og `FEJL` |
 
@@ -121,12 +123,17 @@ For hvert CVR-nummer:
 4. **MATCH** hvis `sum(B) − sum(A) ≥ 6`, hvilket er præcis det samme som
    `gennemsnit B − gennemsnit A ≥ 1,00`. Alt regnes eksakt (decimaltal og brøker), så fx en reel
    ændring på 0,996 er `IKKE_MATCH`, selvom den vises som 1,00. Præcis +1,00 er `MATCH`.
-   Der er ingen øvre grænse.
+   Der er ingen øvre grænse for væksten.
+5. **Størrelsesfilter:** `MATCH` kræver desuden, at virksomhedens seneste månedlige `aarsvaerk`
+   (seneste registrerede måned = sidste måned i Periode B) er **≤ 15,00**. Præcis 15,00 er tilladt;
+   over 15,00 giver `IKKE_MATCH` med en forklaring i `note`. Værdien afrundes ikke før beslutningen
+   (15,0001 er over grænsen). Filteret ændrer ikke 6-mod-6-beregningen. Mangler den seneste værdi
+   eller er den ugyldig, giver punkt 3 allerede `UTILSTRÆKKELIGE_DATA`.
 
 | Status | Betyder |
 |---|---|
-| `MATCH` | Stigning på mindst +1,00 årsværk |
-| `IKKE_MATCH` | Stigning under +1,00 (eller fald) |
+| `MATCH` | Stigning på mindst +1,00 årsværk **og** seneste månedlige årsværk ≤ 15,00 |
+| `IKKE_MATCH` | Stigning under +1,00 (eller fald), eller seneste månedlige årsværk over 15,00 |
 | `UTILSTRÆKKELIGE_DATA` | En af de 12 måneder mangler, findes flere gange, eller har tom/ugyldig `aarsvaerk` (ugyldig = ikke et tal eller negativ). Der søges **ikke** længere tilbage. Intervalkoder bruges aldrig som erstatning. `0` er en gyldig værdi. Ekstremt høje værdier (≥ 1.000.000) analyseres normalt, men får en advarsel i `note`. |
 | `FEJL` | Opslaget eller behandlingen kunne ikke gennemføres: API-fejl, 429/5xx efter genforsøg, ugyldigt svar, ugyldigt CVR-nummer eller anden teknisk fejl |
 

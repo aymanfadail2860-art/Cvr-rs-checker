@@ -14,6 +14,11 @@ Reglerne (fastlagt og godkendt):
 * MATCH hvis sum(B) - sum(A) >= 6, hvilket er præcis det samme som
   gennemsnit(B) - gennemsnit(A) >= 1,00. Tal læses som Decimal og summeres
   som brøker (Fraction), så sammenligningen altid er helt eksakt.
+* Størrelsesfilter: MATCH kræver desuden, at det seneste månedlige aarsvaerk
+  (virksomhedens seneste registrerede måned = slutningen af Periode B) er
+  <= 15,00. Over 15,00 giver IKKE_MATCH. Filteret ændrer ikke 6-mod-6-
+  beregningen. Mangler den seneste værdi eller er den ugyldig, giver den
+  strikte 12-måneders-regel allerede UTILSTRÆKKELIGE_DATA.
 * Procentændringen er kun informativ og er tom, hvis gennemsnit A = 0.
 """
 
@@ -36,6 +41,7 @@ ANTAL_MAANEDER = 12
 PERIODE_LAENGDE = 6
 MATCH_GRAENSE_SUM = 6  # 1,00 årsværk i gennemsnit * 6 måneder
 ADVARSEL_AARSVAERK = Decimal(1_000_000)  # kun advarsel i noten; ændrer ikke status
+MAX_SENESTE_AARSVAERK = 15  # størrelsesfilter: seneste månedlige aarsvaerk skal være <= 15,00
 
 _DATO_RE = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
 
@@ -57,6 +63,8 @@ class Resultat:
     gennemsnit_b: Decimal | None = None
     absolut_aendring: Decimal | None = None
     procent_aendring: Decimal | None = None
+    seneste_aarsvaerk: Decimal | None = None
+    seneste_aarsvaerk_periode: int | None = None
     note: str = ""
 
 
@@ -166,6 +174,13 @@ def analyser_maaneder(cvr_nummer: str, maaneder: list[MaanedsPost]) -> Resultat:
     a_start = seneste - ANTAL_MAANEDER + 1
     a_slut = a_start + PERIODE_LAENGDE - 1
     b_start = a_slut + 1
+    # Saml de 12 relevante måneder. Ældre historik ignoreres helt.
+    vindue: dict[int, list[Any]] = {m: [] for m in range(a_start, seneste + 1)}
+    for p in maaneder:
+        if p.maaned in vindue:
+            vindue[p.maaned].append(p.aarsvaerk)
+
+    seneste_vaerdier = vindue[seneste]
     grundlag = Resultat(
         cvr_nummer=cvr_nummer,
         status=UTILSTRAEKKELIGE_DATA,
@@ -174,13 +189,9 @@ def analyser_maaneder(cvr_nummer: str, maaneder: list[MaanedsPost]) -> Resultat:
         periode_a_slut=a_slut,
         periode_b_start=b_start,
         periode_b_slut=seneste,
+        seneste_aarsvaerk=_som_decimal(seneste_vaerdier[0]) if len(seneste_vaerdier) == 1 else None,
+        seneste_aarsvaerk_periode=seneste,
     )
-
-    # Saml de 12 relevante måneder. Ældre historik ignoreres helt.
-    vindue: dict[int, list[Any]] = {m: [] for m in range(a_start, seneste + 1)}
-    for p in maaneder:
-        if p.maaned in vindue:
-            vindue[p.maaned].append(p.aarsvaerk)
 
     mangler: list[int] = []
     dubletter: list[int] = []
@@ -215,8 +226,14 @@ def analyser_maaneder(cvr_nummer: str, maaneder: list[MaanedsPost]) -> Resultat:
     sum_b = sum((vaerdier[m] for m in range(b_start, seneste + 1)), Fraction(0))
     forskel = sum_b - sum_a
 
-    # Beslutningen træffes på de eksakte summer, aldrig på afrundede tal.
-    status = MATCH if forskel >= MATCH_GRAENSE_SUM else IKKE_MATCH
+    # Beslutningen træffes på de eksakte værdier, aldrig på afrundede tal.
+    vaekst_ok = forskel >= MATCH_GRAENSE_SUM
+    stoerrelse_ok = vaerdier[seneste] <= MAX_SENESTE_AARSVAERK
+    status = MATCH if vaekst_ok and stoerrelse_ok else IKKE_MATCH
+    stoerrelse_note = ""
+    if vaekst_ok and not stoerrelse_ok:
+        vist = str(grundlag.seneste_aarsvaerk).replace(".", ",")
+        stoerrelse_note = f"vækstkrav opfyldt, men seneste aarsvaerk {vist} er over {MAX_SENESTE_AARSVAERK},00"
     procent = None if sum_a == 0 else _som_decimal_tal(forskel / sum_a * 100)
 
     return replace(
@@ -227,7 +244,13 @@ def analyser_maaneder(cvr_nummer: str, maaneder: list[MaanedsPost]) -> Resultat:
         absolut_aendring=_som_decimal_tal(forskel / PERIODE_LAENGDE),
         procent_aendring=procent,
         note="; ".join(
-            n for n in (advarsel, "" if procent is not None else "procent kan ikke beregnes (gennemsnit A = 0)") if n
+            n
+            for n in (
+                stoerrelse_note,
+                advarsel,
+                "" if procent is not None else "procent kan ikke beregnes (gennemsnit A = 0)",
+            )
+            if n
         ),
     )
 

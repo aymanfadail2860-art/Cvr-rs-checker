@@ -37,7 +37,8 @@ def analyser(maaneder: dict[str, object], ekstra: list[dict[str, object]] | None
         (5.50, 6.51, MATCH, "1,01"),  # +1,01
         (5.50, 7.00, MATCH, "1,50"),
         (5.50, 8.50, MATCH, "3,00"),
-        (5.50, 15.50, MATCH, "10,00"),  # ingen øvre grænse
+        (5.00, 15.00, MATCH, "10,00"),  # ingen øvre grænse for væksten
+        (5.50, 15.50, IKKE_MATCH, "10,00"),  # stor vækst, men seneste aarsvaerk over 15,00
         (5.50, 5.50, IKKE_MATCH, "0,00"),
         (8.00, 2.00, IKKE_MATCH, "-6,00"),  # fald
     ],
@@ -307,30 +308,32 @@ def test_minus_nul_er_gyldigt_nul() -> None:
 @pytest.mark.parametrize(
     ("a", "b", "forventet"),
     [
-        (999_999, 1_000_000, MATCH),  # præcis +1,00 ved grænsen for advarslen
+        (999_999, 1_000_000, IKKE_MATCH),  # præcis +1,00 ved advarselsgrænsen, men over 15,00
         (1_000_000, 1_000_000.5, IKKE_MATCH),
-        (10**30, 10**30 + 1, MATCH),
+        (10**30, 10**30 + 1, IKKE_MATCH),
         (10**30, 10**30, IKKE_MATCH),
     ],
 )
 def test_hoeje_vaerdier_analyseres_med_advarsel(a: object, b: object, forventet: str) -> None:
+    # Høje værdier analyseres (aldrig UTILSTRÆKKELIGE_DATA), men størrelsesfilteret
+    # (seneste aarsvaerk <= 15,00) gør dem til IKKE_MATCH.
     r = analyser(tolv_maaneder("2026-07", [a] * 6, [b] * 6))
-    assert r.status == forventet  # aldrig UTILSTRÆKKELIGE_DATA pga. høje værdier
-    assert r.note.startswith("advarsel: usædvanligt høj aarsvaerk i ")
+    assert r.status == forventet
+    assert "advarsel: usædvanligt høj aarsvaerk i " in r.note
     assert formater_tal(r.absolut_aendring) in ("1,00", "0,50", "0,00")
 
 
 def test_ingen_advarsel_under_graensen() -> None:
     r = analyser(tolv_maaneder("2026-07", [999_998] * 6, [999_999] * 6))
-    assert r.status == MATCH
-    assert r.note == ""
+    assert r.status == IKKE_MATCH  # størrelsesfilter
+    assert "advarsel" not in r.note
 
 
 def test_ekstremt_stor_eksponent_kan_analyseres() -> None:
     svar = maaneds_svar(CVR, tolv_maaneder("2026-07", [7777] * 6, [8888] * 6))
     svar = svar.replace('"aarsvaerk": 7777', '"aarsvaerk": 1E+50').replace('"aarsvaerk": 8888', '"aarsvaerk": 2E+50')
     r = analyser_raa_svar(CVR, svar)
-    assert r.status == MATCH
+    assert r.status == IKKE_MATCH  # analyseres, men er over størrelsesgrænsen
     assert "advarsel" in r.note
     assert formater_tal(r.gennemsnit_b).startswith("2000000000")
 
@@ -339,3 +342,58 @@ def test_meget_stor_procent_kan_vises() -> None:
     r = analyser(tolv_maaneder("2026-07", [1e-25] + [0] * 5, [1] * 6))
     assert r.status == IKKE_MATCH  # sum(B) - sum(A) = 6 - 1e-25, altså lige under 6
     assert formater_tal(r.procent_aendring).endswith(",00")  # må ikke crashe
+
+
+# --- Størrelsesfilter: seneste månedlige aarsvaerk <= 15,00 ----------------
+
+
+@pytest.mark.parametrize(
+    ("a", "b", "seneste", "forventet"),
+    [
+        ([14] * 6, [15] * 6, "15", MATCH),  # vækst +1,00, seneste 15 -> MATCH
+        ([15] * 6, [16] * 6, "16", IKKE_MATCH),  # vækst +1,00, seneste 16 -> IKKE_MATCH
+        ([5.5] * 6, [8] * 6, "8", MATCH),  # vækst +2,50, seneste 8 -> MATCH
+        ([7.01] * 6, [8] * 6, "8", IKKE_MATCH),  # vækst +0,99, seneste 8 -> IKKE_MATCH
+        ([3] * 6, [5] * 5 + [8], "8", MATCH),  # vækst +2,50 (ujævn B-periode), seneste 8
+        ([6] * 6, [8] * 6, "8", MATCH),  # brugerens eksempel: vækst +2,00, seneste 8
+        ([3] * 6, [4] * 6, "4", MATCH),
+        ([6.2] * 6, [7] * 6, "7", IKKE_MATCH),  # brugerens eksempel: vækst +0,80, seneste 7
+    ],
+)
+def test_stoerrelsesfilter(a: list[object], b: list[object], seneste: str, forventet: str) -> None:
+    r = analyser(tolv_maaneder("2026-07", a, b))
+    assert r.status == forventet
+    assert r.seneste_aarsvaerk == Decimal(seneste)
+    assert formater_maaned(r.seneste_aarsvaerk_periode or 0) == "2026-07"
+
+
+def test_over_15_faar_note_om_stoerrelse() -> None:
+    r = analyser(tolv_maaneder("2026-07", [12] * 6, [16] * 6))
+    assert r.status == IKKE_MATCH
+    assert formater_tal(r.absolut_aendring) == "4,00"  # 6-mod-6-beregningen er uændret
+    assert "seneste aarsvaerk 16 er over 15,00" in r.note
+
+
+def test_praecis_15_er_tilladt_og_lidt_over_er_ikke() -> None:
+    svar = maaneds_svar(CVR, tolv_maaneder("2026-07", [10] * 6, [14] * 5 + [7777]))
+    assert analyser_raa_svar(CVR, svar.replace('"aarsvaerk": 7777', '"aarsvaerk": 15.00')).status == MATCH
+    # Ingen afrunding før beslutningen: 15,0001 vises som 15,00, men er over grænsen.
+    r = analyser_raa_svar(CVR, svar.replace('"aarsvaerk": 7777', '"aarsvaerk": 15.0001'))
+    assert r.status == IKKE_MATCH
+    assert formater_tal(r.seneste_aarsvaerk) == "15,00"
+
+
+def test_filteret_bruger_seneste_maaned_ikke_gennemsnittet() -> None:
+    # Gennemsnit B = 19,17 (over 15), men seneste måned = 15 -> MATCH
+    assert analyser(tolv_maaneder("2026-07", [10] * 6, [20] * 5 + [15])).status == MATCH
+    # Gennemsnit B = 11,00 (under 15), men seneste måned = 16 -> IKKE_MATCH
+    assert analyser(tolv_maaneder("2026-07", [5] * 6, [10] * 5 + [16])).status == IKKE_MATCH
+
+
+@pytest.mark.parametrize("seneste", [None, "8", True, -1])
+def test_ellers_match_men_seneste_aarsvaerk_mangler(seneste: object) -> None:
+    r = analyser(tolv_maaneder("2026-07", [5] * 6, [8] * 5 + [seneste]))
+    assert r.status == UTILSTRAEKKELIGE_DATA
+    assert r.seneste_aarsvaerk is None
+    assert formater_maaned(r.seneste_aarsvaerk_periode or 0) == "2026-07"
+    assert "null/ugyldig aarsvaerk i 2026-07" in r.note
