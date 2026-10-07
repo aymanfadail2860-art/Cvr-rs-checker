@@ -65,6 +65,7 @@ class Resultat:
     procent_aendring: Decimal | None = None
     seneste_aarsvaerk: Decimal | None = None
     seneste_aarsvaerk_periode: int | None = None
+    virksomhedsnavn: str = ""  # sættes efter analysen; påvirker ikke status
     note: str = ""
 
 

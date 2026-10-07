@@ -20,6 +20,7 @@ from .api import (
     hent_api_noegle,
 )
 from .indlaesning import laes_cvr_numre
+from .navne import tilfoej_navne
 from .output import skriv_resultater
 
 # Stop kørslen hvis så mange opslag i træk fejler efter alle genforsøg,
@@ -35,6 +36,7 @@ def koer(
     offline: bool = False,
     opdater: bool = False,
     cache_dage: float | None = 7,
+    navne_cache: RaaSvarCache | None = None,
     udskriv: Callable[[str], None] = print,
 ) -> tuple[list[Resultat], str | None]:
     """Behandl alle CVR-numre. Returnerer (resultater, årsag hvis kørslen blev stoppet).
@@ -104,6 +106,15 @@ def koer(
         resultater.append(resultat)
         udskriv(f"[{i:>{bredde}}/{len(cvr_numre)}] {cvr}  {kilde:<6}  {resultat.status}")
 
+    if navne_cache is not None:
+        resultater = tilfoej_navne(
+            resultater,
+            klient=klient,
+            cache=navne_cache,
+            kun_cache=offline or stop_aarsag is not None,  # ingen nye kald efter et stop
+            opdater=opdater,
+            udskriv=udskriv,
+        )
     return resultater, stop_aarsag
 
 
@@ -124,6 +135,12 @@ def _parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("data/raa_svar"),
         help="hvor rå API-svar gemmes (default: data/raa_svar/)",
+    )
+    p.add_argument(
+        "--navne-mappe",
+        type=Path,
+        default=Path("data/navne"),
+        help="hvor hentede virksomhedsnavne gemmes (default: data/navne/)",
     )
     p.add_argument(
         "--cache-dage", type=float, default=7, help="genbrug gemte råsvar der er højst så mange dage gamle (default: 7)"
@@ -182,6 +199,7 @@ def main(argv: list[str] | None = None) -> int:
         offline=args.offline,
         opdater=args.opdater,
         cache_dage=args.cache_dage,
+        navne_cache=RaaSvarCache(args.navne_mappe),
     )
     resultater += [fejl_resultat(raa, "ugyldigt CVR-nummer (skal være 8 cifre)") for raa in indl.ugyldige]
 

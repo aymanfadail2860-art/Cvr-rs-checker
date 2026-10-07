@@ -15,6 +15,7 @@ from .analyse import MATCH, Resultat, formater_maaned
 
 KOLONNER = [
     "cvr_nummer",
+    "virksomhedsnavn",
     "seneste_registrerede_maaned",
     "periode_a_start",
     "periode_a_slut",
@@ -57,6 +58,7 @@ def _sikker_tekst(tekst: str) -> str:
 def som_raekke(r: Resultat) -> list[str]:
     return [
         _sikker_tekst(r.cvr_nummer),
+        _sikker_tekst(r.virksomhedsnavn),
         _maaned(r.seneste_registrerede_maaned),
         _maaned(r.periode_a_start),
         _maaned(r.periode_a_slut),

@@ -23,6 +23,7 @@ from pathlib import Path
 
 BASIS_URL = "https://api.cvr.dev"
 ANSATTE_STI = "/api/cvrdev/virksomhed/ansatte"
+VIRKSOMHED_STI = "/api/cvr/virksomhed"  # rå CVR-data; bruges kun til virksomhedsnavne
 TEST_STI = "/api/test/apikey"  # tæller ikke med i det månedlige forbrug
 MILJOEVARIABEL = "CVR_DEV_API_KEY"
 
@@ -118,7 +119,7 @@ class CvrDevKlient:
     def _hent(self, sti: str, params: dict[str, str] | None = None) -> str:
         url = BASIS_URL + sti
         if params:
-            url += "?" + urllib.parse.urlencode(params)
+            url += "?" + urllib.parse.urlencode(params, safe=",")
 
         sidste_fejl = ""
         ventetid = 0.0
@@ -166,6 +167,10 @@ class CvrDevKlient:
     def hent_ansatte(self, cvr_nummer: str) -> str:
         """Hent det rå JSON-svar for ét CVR-nummer."""
         return self._hent(ANSATTE_STI, {"cvr_nummer": cvr_nummer})
+
+    def hent_virksomheder(self, cvr_numre: list[str]) -> str:
+        """Hent rå CVR-data for op til 10 CVR-numre i ét kald (bruges til navne)."""
+        return self._hent(VIRKSOMHED_STI, {"cvr_nummer": ",".join(cvr_numre)})
 
 
 class RaaSvarCache:

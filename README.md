@@ -87,6 +87,7 @@ hentes (og betales) de allerede gemte svar en gang til.
 | `--cache-dage N` | Genbrug gemte råsvar der er højst N dage gamle (default 7) |
 | `--output-mappe STI` | Hvor resultater gemmes (default `resultater/`) |
 | `--cache-mappe STI` | Hvor råsvar gemmes (default `data/raa_svar/`) |
+| `--navne-mappe STI` | Hvor hentede virksomhedsnavne gemmes (default `data/navne/`) |
 | `--pause SEK` | Pause efter hvert API-kald (default 0,2 sek.) |
 | `--timeout SEK` | Timeout pr. API-kald (default 30 sek.) |
 | `--max-genforsoeg N` | Genforsøg ved 429/5xx/netværksfejl (default 5) |
@@ -98,6 +99,7 @@ hentes (og betales) de allerede gemte svar en gang til.
 | Kolonne | Forklaring |
 |---|---|
 | `cvr_nummer` | CVR-nummeret |
+| `virksomhedsnavn` | Virksomhedens navn fra CVR (tom ved `FEJL`) |
 | `seneste_registrerede_maaned` | Virksomhedens seneste måned med månedsdata (ÅÅÅÅ-MM) |
 | `periode_a_start` / `periode_a_slut` | De 6 måneder før Periode B |
 | `gennemsnit_aarsvaerk_periode_a` | Gennemsnitligt årsværk i Periode A |
@@ -140,6 +142,10 @@ For hvert CVR-nummer:
 ## API-forbrug og fejlhåndtering
 
 * Ét opslag pr. CVR-nummer (endpointet tager kun ét nummer ad gangen).
+* Virksomhedsnavnet findes ikke i svaret for ansatte og årsværk. Det hentes derfor fra cvr.dev's
+  endpoint med rå CVR-data, 10 CVR-numre pr. kald (ca. +10 % kald), og gemmes i `data/navne/` i
+  90 dage, så det ikke hentes igen. Navnet påvirker aldrig status eller beregninger; kan det ikke
+  hentes, står der `virksomhedsnavn mangler` i `note`.
 * Før første opslag testes nøglen med cvr.dev's gratis test-endpoint. Er nøglen ugyldig
   (401), mangler abonnementet (402), eller dækker abonnementet ikke endpointet (403),
   stoppes kørslen med det samme, før der bruges forbrug.
@@ -162,6 +168,7 @@ cvr_aarsvaerk_checker/
   indlaesning.py   # læs, rens, validér og fjern dubletter i CVR-numre
   api.py           # cvr.dev-klient (retries, backoff, timeout) og cache af råsvar
   analyse.py       # analysemetoden (ren beregning, ingen netværk)
+  navne.py         # virksomhedsnavne (hentes 10 ad gangen og gemmes)
   output.py        # CSV-filer til Excel
 tests/             # pytest – laver aldrig rigtige API-kald
 eksempel_cvr_numre.txt

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import json
 from pathlib import Path
 
 from cvr_aarsvaerk_checker.analyse import FEJL, IKKE_MATCH, MATCH, UTILSTRAEKKELIGE_DATA
@@ -180,8 +181,20 @@ def test_main_offline_skriver_begge_csv_filer(tmp_path: Path) -> None:
         "D ApS;1234\nE ApS;44444444\nF ApS;55555555\n",
         encoding="utf-8",
     )
+    navne = RaaSvarCache(tmp_path / "navne")
+    for cvr, navn in [("11111111", "Alfa Tømrer ApS"), ("22222222", "Beta Byg ApS"), ("44444444", "Gamma A/S")]:
+        navne.gem(cvr, json.dumps({"navn": navn}))
     kode = main(
-        [str(inputfil), "--offline", "--cache-mappe", str(tmp_path / "cache"), "--output-mappe", str(tmp_path / "ud")]
+        [
+            str(inputfil),
+            "--offline",
+            "--cache-mappe",
+            str(tmp_path / "cache"),
+            "--navne-mappe",
+            str(tmp_path / "navne"),
+            "--output-mappe",
+            str(tmp_path / "ud"),
+        ]
     )
     assert kode == 0
 
@@ -202,6 +215,7 @@ def test_main_offline_skriver_begge_csv_filer(tmp_path: Path) -> None:
     raekke = dict(zip(KOLONNER, matches[1], strict=True))
     assert raekke == {
         "cvr_nummer": "11111111",
+        "virksomhedsnavn": "Alfa Tømrer ApS",
         "seneste_registrerede_maaned": "2026-07",
         "periode_a_start": "2025-08",
         "periode_a_slut": "2026-01",
@@ -221,7 +235,15 @@ def test_main_offline_skriver_begge_csv_filer(tmp_path: Path) -> None:
 def test_formler_fra_input_neutraliseres_i_csv(tmp_path: Path) -> None:
     inputfil = tmp_path / "input.txt"
     inputfil.write_text('CVR\n=HYPERLINK("http://x")\n@SUM(1+1)\n+45 12\n', encoding="utf-8")
-    assert main([str(inputfil), "--offline", "--output-mappe", str(tmp_path / "ud")]) == 0
+    args = [
+        str(inputfil),
+        "--offline",
+        "--navne-mappe",
+        str(tmp_path / "navne"),
+        "--output-mappe",
+        str(tmp_path / "ud"),
+    ]
+    assert main(args) == 0
     (koersel,) = (tmp_path / "ud").iterdir()
     celler = [r[0] for r in _laes_csv(koersel / "alle_resultater.csv")[1:]]
     assert all(c.startswith("'") for c in celler), celler
@@ -235,7 +257,16 @@ def test_matches_csv_udelader_virksomheder_over_15_aarsvaerk(tmp_path: Path) -> 
     inputfil = tmp_path / "input.txt"
     inputfil.write_text("11111111\n33333333\n", encoding="utf-8")
     kode = main(
-        [str(inputfil), "--offline", "--cache-mappe", str(tmp_path / "cache"), "--output-mappe", str(tmp_path / "ud")]
+        [
+            str(inputfil),
+            "--offline",
+            "--cache-mappe",
+            str(tmp_path / "cache"),
+            "--navne-mappe",
+            str(tmp_path / "navne"),
+            "--output-mappe",
+            str(tmp_path / "ud"),
+        ]
     )
     assert kode == 0
     (koersel,) = (tmp_path / "ud").iterdir()
